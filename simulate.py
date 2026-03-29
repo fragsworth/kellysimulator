@@ -1,7 +1,7 @@
 """Kelly Criterion Wealth Simulation.
 
 Simulates a population of individuals making randomized gambling decisions
-using the Kelly Criterion, with varying levels of stupidity and risk inclination.
+using the Kelly Criterion, with varying levels of stupidity.
 Results are written to disk as .npy files for separate analysis by stats.py.
 """
 
@@ -14,14 +14,12 @@ from numpy.random import Generator
 @dataclass
 class SimConfig:
     """All simulation parameters."""
-    population: int = 1_000_000_000
+    population: int = 1_000_000
     starting_wealth: float = 100_000.0
     num_gambles: int = 20
-    batch_size: int = 50_000_000
+    batch_size: int = 1_000_000
     min_stupidity: float = 0.0
     max_stupidity: float = 1.0
-    min_belief_bonus: float = -0.20
-    max_belief_bonus: float = 0.20
     min_ev: float = -0.5
     max_ev: float = 1.5
     min_success: float = 0.10
@@ -46,23 +44,22 @@ class Gamble:
 
 
 class Individual:
-    """A person with persistent traits who makes Kelly-optimal bets.
+    """A person with a persistent stupidity trait who makes Kelly-optimal bets.
 
-    Each individual has a stupidity value and belief bonus that persist
-    across all gambles. In the vectorized simulation, arrays of these
-    values are used instead of individual objects.
+    Each individual has a stupidity value that persists across all gambles.
+    In the vectorized simulation, arrays of these values are used instead
+    of individual objects.
     """
-    __slots__ = ('stupidity', 'belief_bonus', 'wealth')
+    __slots__ = ('stupidity', 'wealth')
 
-    def __init__(self, stupidity: float, belief_bonus: float, starting_wealth: float):
+    def __init__(self, stupidity: float, starting_wealth: float):
         self.stupidity = stupidity
-        self.belief_bonus = belief_bonus
         self.wealth = starting_wealth
 
     def perceive_probability(self, gamble: Gamble, rng: Generator) -> float:
-        """Compute perceived success chance with stupidity noise + belief bonus."""
+        """Compute perceived success chance with stupidity noise."""
         noise = rng.uniform(-self.stupidity / 2, self.stupidity / 2)
-        perceived = gamble.true_success_chance + noise + self.belief_bonus
+        perceived = gamble.true_success_chance + noise
         return max(0.0, min(1.0, perceived))
 
     def kelly_fraction(self, perceived_prob: float, net_odds: float) -> float:
@@ -102,8 +99,6 @@ class Simulation:
         # Pre-allocate memory-mapped output files
         stupidity_mmap = np.lib.format.open_memmap(
             'results_stupidity.npy', mode='w+', dtype=np.float64, shape=(N,))
-        belief_bonus_mmap = np.lib.format.open_memmap(
-            'results_belief_bonus.npy', mode='w+', dtype=np.float64, shape=(N,))
         wealth_mmap = np.lib.format.open_memmap(
             'results_wealth.npy', mode='w+', dtype=np.float64, shape=(N,))
 
@@ -118,23 +113,21 @@ class Simulation:
 
             # Generate persistent traits for this batch
             stupidity = self.rng.uniform(cfg.min_stupidity, cfg.max_stupidity, batch_n)
-            belief_bonus = self.rng.uniform(cfg.min_belief_bonus, cfg.max_belief_bonus, batch_n)
             wealth = np.full(batch_n, cfg.starting_wealth)
 
             # Run all gamble rounds for this batch
             for round_num in range(cfg.num_gambles):
-                self._run_round(wealth, stupidity, belief_bonus, batch_n)
+                self._run_round(wealth, stupidity, batch_n)
 
             # Write results to memory-mapped files
             stupidity_mmap[start:end] = stupidity
-            belief_bonus_mmap[start:end] = belief_bonus
             wealth_mmap[start:end] = wealth
 
         # Flush to disk
-        del stupidity_mmap, belief_bonus_mmap, wealth_mmap
+        del stupidity_mmap, wealth_mmap
         print("  Results written to disk.")
 
-    def _run_round(self, wealth, stupidity, belief_bonus, n):
+    def _run_round(self, wealth, stupidity, n):
         """Execute one round of gambling for all individuals in a batch (vectorized)."""
         cfg = self.config
         rng = self.rng
@@ -147,7 +140,7 @@ class Simulation:
 
         # Compute perceived probability
         noise = rng.uniform(-stupidity / 2, stupidity / 2)
-        perceived_prob = np.clip(true_prob + noise + belief_bonus, 0.0, 1.0)
+        perceived_prob = np.clip(true_prob + noise, 0.0, 1.0)
 
         # Kelly fraction: f* = (b*p - q) / b
         q = 1.0 - perceived_prob
