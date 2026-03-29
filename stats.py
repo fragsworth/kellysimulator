@@ -72,9 +72,12 @@ def print_top_50(top_rows):
     print("=" * 72)
 
 
-def plot_charts(wealth, stupidity, belief_bonus):
-    """Generate 8 bar charts and return them as PNG bytes plus save to disk."""
+def plot_charts(wealth, stupidity, belief_bonus, top_rows):
+    """Generate charts and return them as PNG bytes plus save to disk."""
     chart_images = {}
+
+    # Top 50 scatter plot
+    chart_images['top50'] = _plot_top_50(top_rows)
 
     # Stupidity: 20 bins of 5% width
     stupidity_edges = np.linspace(0.0, 1.0, 21)
@@ -97,6 +100,76 @@ def plot_charts(wealth, stupidity, belief_bonus):
     )
 
     return chart_images
+
+
+def _plot_top_50(top_rows):
+    """Create a scatter plot of top 50 wealthiest: stupidity vs belief bonus, sized by wealth."""
+    ranks = [r['rank'] for r in top_rows]
+    stupidities = [r['stupidity'] * 100 for r in top_rows]
+    bonuses = [r['belief_bonus'] * 100 for r in top_rows]
+    wealths = [r['wealth'] for r in top_rows]
+
+    max_w = max(wealths)
+    sizes = [40 + 260 * (w / max_w) for w in wealths]
+
+    with plt.style.context('seaborn-v0_8-darkgrid'):
+        fig, axes = plt.subplots(1, 3, figsize=(20, 7))
+        fig.suptitle("Top 50 Wealthiest Individuals", fontsize=16, fontweight='bold', y=1.0)
+
+        # 1) Scatter: Stupidity vs Belief Bonus, sized/colored by wealth
+        ax = axes[0]
+        sc = ax.scatter(
+            stupidities, bonuses, s=sizes, c=wealths, cmap='YlOrRd',
+            edgecolors='white', linewidth=0.5, alpha=0.85,
+        )
+        ax.set_xlabel("Stupidity (%)", fontsize=11)
+        ax.set_ylabel("Belief Bonus (%)", fontsize=11)
+        ax.set_title("Stupidity vs Risk Inclination", fontsize=12, fontweight='bold')
+        ax.set_xlim(-5, 105)
+        ax.set_ylim(-25, 25)
+        cbar = fig.colorbar(sc, ax=ax, pad=0.02)
+        cbar.set_label("Wealth ($)", fontsize=9)
+        cbar.ax.tick_params(labelsize=7)
+        # Label top 3
+        for r in top_rows[:3]:
+            ax.annotate(
+                f"#{r['rank']}", (r['stupidity'] * 100, r['belief_bonus'] * 100),
+                fontsize=7, fontweight='bold', color='white',
+                textcoords='offset points', xytext=(5, 5),
+            )
+
+        # 2) Horizontal bar: Stupidity of top 50 (sorted by rank)
+        ax = axes[1]
+        colors_s = plt.cm.RdYlGn_r([s / 100 for s in stupidities])
+        ax.barh(range(50), stupidities, color=colors_s, edgecolor='white', linewidth=0.3)
+        ax.set_yticks(range(50))
+        ax.set_yticklabels([f"#{r}" for r in ranks], fontsize=6)
+        ax.invert_yaxis()
+        ax.set_xlabel("Stupidity (%)", fontsize=11)
+        ax.set_title("Stupidity by Rank", fontsize=12, fontweight='bold')
+        ax.set_xlim(0, 105)
+
+        # 3) Horizontal bar: Belief Bonus of top 50
+        ax = axes[2]
+        colors_b = plt.cm.RdYlGn([((b + 20) / 40) for b in bonuses])
+        ax.barh(range(50), bonuses, color=colors_b, edgecolor='white', linewidth=0.3)
+        ax.set_yticks(range(50))
+        ax.set_yticklabels([f"#{r}" for r in ranks], fontsize=6)
+        ax.invert_yaxis()
+        ax.set_xlabel("Belief Bonus (%)", fontsize=11)
+        ax.set_title("Risk Inclination by Rank", fontsize=12, fontweight='bold')
+        ax.axvline(0, color='#666', linewidth=0.8, linestyle='--')
+
+        plt.tight_layout()
+        filename = "top50_charts.png"
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        print(f"  Saved {filename}")
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf.read()
 
 
 def _plot_binned_charts(trait_values, wealth_values, bin_edges, trait_name, filename):
@@ -442,6 +515,11 @@ def generate_html_report(summary, top_rows, chart_images):
       </div>
 
       <div class="chart-section">
+        <h2 class="section-title">Top 50 Wealthiest: Traits Overview</h2>
+        {img_tag(chart_images['top50'])}
+      </div>
+
+      <div class="chart-section">
         <h2 class="section-title">Wealth by Stupidity</h2>
         {img_tag(chart_images['stupidity'])}
       </div>
@@ -497,7 +575,7 @@ def main():
 
     # Generate charts (saves PNGs and returns bytes)
     print("\nGenerating charts...")
-    chart_images = plot_charts(wealth, stupidity, belief_bonus)
+    chart_images = plot_charts(wealth, stupidity, belief_bonus, top_rows)
 
     # Generate HTML report
     print("\nGenerating HTML report...")
