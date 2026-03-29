@@ -1,5 +1,3 @@
 __pycache__/
 *.pyc
 results_*.npy
-results.html
-*_charts.png
